@@ -28,10 +28,15 @@ async fn run(app: App) -> Result<()> {
         .context("Failed to create service")?;
 
     let interval = Duration::from_secs(config.metrics_settings.collection_interval_sec);
+    service.start_listening(interval).await?;
+
+    log::info!(
+        "Server is running on {} with interval {}s",
+        config.metrics_settings.listen_address,
+        interval.as_secs()
+    );
 
     let (_exporter, writer) = pomfrit::create_exporter(Some(config.metrics_settings)).await?;
-
-    service.start_listening(interval);
 
     writer.spawn(move |buffer| {
         buffer.write(service.metrics());

@@ -33,10 +33,19 @@ impl Service {
         Ok(Self { listeners })
     }
 
-    pub fn start_listening(&self, interval: Duration) {
+    pub async fn start_listening(&self, interval: Duration) -> Result<()> {
+        let mut futures = FuturesUnordered::new();
         for listener in &self.listeners {
-            listener.start_listening(interval);
+            for vault in &listener.vaults {
+                futures.push(vault.start_listening(interval));
+            }
         }
+
+        while let Some(result) = futures.next().await {
+            result.context("Failed to start listener")?
+        }
+
+        Ok(())
     }
 
     pub fn metrics(&'_ self) -> impl std::fmt::Display + '_ {
@@ -67,12 +76,6 @@ impl Listener {
 
         Ok(Arc::new(Self { chain_id, vaults }))
     }
-
-    fn start_listening(&self, interval: Duration) {
-        for vault in &self.vaults {
-            vault.start_listening(interval);
-        }
-    }
 }
 
 struct VaultListener {
@@ -89,6 +92,13 @@ impl VaultListener {
         let token = api.get_vault_token(vault.clone()).await?;
         let token_info = api.get_token_info(token.clone()).await?;
 
+        log::info!(
+            "Created listener for vault {:x} ({} / {})",
+            vault,
+            token_info.symbol,
+            token_info.decimals
+        );
+
         Ok(Arc::new(VaultListener {
             listening: AtomicBool::new(false),
             api,
@@ -99,22 +109,32 @@ impl VaultListener {
         }))
     }
 
-    fn start_listening(self: &Arc<Self>, interval: Duration) {
+    async fn start_listening(self: &Arc<Self>, interval: Duration) -> Result<()> {
         if self.listening.swap(true, Ordering::AcqRel) {
-            return;
+            return Ok(());
         }
 
-        let this = self.clone();
+        self.update().await?;
 
+        log::info!(
+            "Started listening {:x} ({} / {})",
+            self.vault,
+            self.token_info.symbol,
+            self.token_info.decimals
+        );
+
+        let this = self.clone();
         tokio::spawn(async move {
             loop {
+                tokio::time::sleep(interval).await;
+
                 if let Err(e) = this.update().await {
                     log::error!("Failed to update vault balance {:x}: {}", this.vault, e);
                 }
-
-                tokio::time::sleep(interval).await
             }
         });
+
+        Ok(())
     }
 
     async fn update(&self) -> Result<()> {
