@@ -89,8 +89,8 @@ struct VaultListener {
 
 impl VaultListener {
     async fn new(api: Api, vault: ethabi::Address) -> Result<Arc<Self>> {
-        let token = api.get_vault_token(vault.clone()).await?;
-        let token_info = api.get_token_info(token.clone()).await?;
+        let token = api.get_vault_token(vault).await?;
+        let token_info = api.get_token_info(token).await?;
 
         log::info!(
             "Created listener for vault {:x} ({} / {})",
@@ -138,11 +138,8 @@ impl VaultListener {
     }
 
     async fn update(&self) -> Result<()> {
-        let balance = self
-            .api
-            .get_vault_balance(self.token.clone(), self.vault.clone())
-            .await?;
-        let total_assets = self.api.get_vault_total_assets(self.vault.clone()).await?;
+        let balance = self.api.get_vault_balance(self.token, self.vault).await?;
+        let total_assets = self.api.get_vault_total_assets(self.vault).await?;
 
         let updated_at = now();
 
@@ -193,7 +190,7 @@ impl Api {
 
     async fn get_token_info(&self, token: ethabi::Address) -> Result<TokenInfo> {
         let symbol = match self
-            .call(token.clone(), contracts::erc_20::symbol(), &[])
+            .call(token, contracts::erc_20::symbol(), &[])
             .await?
             .next()
         {
@@ -285,7 +282,6 @@ impl std::fmt::Display for Metrics<'_> {
         const LABEL_CHAIN_ID: &str = "chain_id";
         const LABEL_SYMBOL: &str = "symbol";
         const LABEL_DECIMALS: &str = "decimals";
-        const LABEL_UPDATED_AT: &str = "updated_at";
 
         for listener in self.0 {
             for vault in &listener.vaults {
@@ -298,15 +294,19 @@ impl std::fmt::Display for Metrics<'_> {
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_SYMBOL, &vault.token_info.symbol)
                     .label(LABEL_DECIMALS, &vault.token_info.decimals)
-                    .label(LABEL_UPDATED_AT, &state.updated_at)
                     .value(PrintedNum(&state.balance))?;
 
                 f.begin_metric("total_assets")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_SYMBOL, &vault.token_info.symbol)
                     .label(LABEL_DECIMALS, &vault.token_info.decimals)
-                    .label(LABEL_UPDATED_AT, &state.updated_at)
                     .value(PrintedNum(&state.total_assets))?;
+
+                f.begin_metric("updated_at")
+                    .label(LABEL_CHAIN_ID, listener.chain_id)
+                    .label(LABEL_SYMBOL, &vault.token_info.symbol)
+                    .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .value(state.updated_at)?;
             }
         }
 
