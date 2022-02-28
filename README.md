@@ -9,6 +9,23 @@ cargo build --release
 target/release/bridge-vaults-exporter --config config.yaml
 ```
 
+### Example output
+
+```
+balance{chain_id="250",symbol="DAI",decimals="18",updated_at="1646076875"} 15775831476917052039837
+total_assets{chain_id="250",symbol="DAI",decimals="18",updated_at="1646076875"} 15775831476917052039837
+balance{chain_id="56",symbol="DAI",decimals="18",updated_at="1646076875"} 11454597652850199020763
+total_assets{chain_id="56",symbol="DAI",decimals="18",updated_at="1646076875"} 11454597652850199020763
+balance{chain_id="137",symbol="DAI",decimals="18",updated_at="1646076875"} 2502623258636882209434
+total_assets{chain_id="137",symbol="DAI",decimals="18",updated_at="1646076875"} 2502623258636882209434
+balance{chain_id="1",symbol="DAI",decimals="18",updated_at="1646076875"} 346192603472053121587099
+total_assets{chain_id="1",symbol="DAI",decimals="18",updated_at="1646076875"} 346192603472053121587099
+```
+
+> Exported metrics:
+> - `balance` - current token balance which is available for withdrawal.
+> - `total_assets` - total token balance, including funds which are locked in some strategies.
+
 ### Example config
 
 > NOTE: The syntax `${VAR}` can also be used everywhere in config. It will be

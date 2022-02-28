@@ -285,6 +285,7 @@ impl std::fmt::Display for Metrics<'_> {
         const LABEL_CHAIN_ID: &str = "chain_id";
         const LABEL_SYMBOL: &str = "symbol";
         const LABEL_DECIMALS: &str = "decimals";
+        const LABEL_UPDATED_AT: &str = "updated_at";
 
         for listener in self.0 {
             for vault in &listener.vaults {
@@ -297,12 +298,14 @@ impl std::fmt::Display for Metrics<'_> {
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_SYMBOL, &vault.token_info.symbol)
                     .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .label(LABEL_UPDATED_AT, &state.updated_at)
                     .value(PrintedNum(&state.balance))?;
 
                 f.begin_metric("total_assets")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_SYMBOL, &vault.token_info.symbol)
                     .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .label(LABEL_UPDATED_AT, &state.updated_at)
                     .value(PrintedNum(&state.total_assets))?;
             }
         }
