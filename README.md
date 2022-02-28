@@ -12,19 +12,29 @@ target/release/bridge-vaults-exporter --config config.yaml
 ### Example output
 
 ```
-balance{chain_id="250",symbol="DAI",decimals="18",updated_at="1646076875"} 15775831476917052039837
-total_assets{chain_id="250",symbol="DAI",decimals="18",updated_at="1646076875"} 15775831476917052039837
-balance{chain_id="56",symbol="DAI",decimals="18",updated_at="1646076875"} 11454597652850199020763
-total_assets{chain_id="56",symbol="DAI",decimals="18",updated_at="1646076875"} 11454597652850199020763
-balance{chain_id="137",symbol="DAI",decimals="18",updated_at="1646076875"} 2502623258636882209434
-total_assets{chain_id="137",symbol="DAI",decimals="18",updated_at="1646076875"} 2502623258636882209434
-balance{chain_id="1",symbol="DAI",decimals="18",updated_at="1646076875"} 346192603472053121587099
-total_assets{chain_id="1",symbol="DAI",decimals="18",updated_at="1646076875"} 346192603472053121587099
+token_decimals{chain_id="137",token="0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",symbol="DAI"} 18
+token_decimals{chain_id="56",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3",symbol="DAI"} 18
+token_decimals{chain_id="250",token="0x8d11ec38a3eb5e956b052f67da8bdc9bef8abf3e",symbol="DAI"} 18
+token_decimals{chain_id="1",token="0x6b175474e89094c44da98b954eedeac495271d0f",symbol="DAI"} 18
+balance{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3"} 11454597652850199020763
+total_assets{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3"} 11454597652850199020763
+updated_at{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307"} 1646086133
+balance{chain_id="250",vault="0x334d7e33f3b0ac04309b17ca56bcb0f0fa3d0efd",token="0x8d11ec38a3eb5e956b052f67da8bdc9bef8abf3e"} 15775831476917052039837
+total_assets{chain_id="250",vault="0x334d7e33f3b0ac04309b17ca56bcb0f0fa3d0efd",token="0x8d11ec38a3eb5e956b052f67da8bdc9bef8abf3e"} 15775831476917052039837
+updated_at{chain_id="250",vault="0x334d7e33f3b0ac04309b17ca56bcb0f0fa3d0efd"} 1646086104
+balance{chain_id="137",vault="0xced734f47613e2484fd9ee6f76afcb866bc4d6fa",token="0x8f3cf7ad23cd3cadbd9735aff958023239c6a063"} 2502623258636882209434
+total_assets{chain_id="137",vault="0xced734f47613e2484fd9ee6f76afcb866bc4d6fa",token="0x8f3cf7ad23cd3cadbd9735aff958023239c6a063"} 2502623258636882209434
+updated_at{chain_id="137",vault="0xced734f47613e2484fd9ee6f76afcb866bc4d6fa"} 1646086104
+balance{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968",token="0x6b175474e89094c44da98b954eedeac495271d0f"} 346192603472053121587099
+total_assets{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968",token="0x6b175474e89094c44da98b954eedeac495271d0f"} 346192603472053121587099
+updated_at{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968"} 1646086104
 ```
 
 > Exported metrics:
+> - `token_decimals` - token decimals (unique for each token in each each network)
 > - `balance` - current token balance which is available for withdrawal.
 > - `total_assets` - total token balance, including funds which are locked in some strategies.
+> - `updated_at` - timestamp of the last update
 
 ### Example config
 

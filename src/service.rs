@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,7 @@ use crate::printed_num::*;
 
 pub struct Service {
     listeners: Vec<Arc<Listener>>,
+    token_decimals: String,
 }
 
 impl Service {
@@ -30,7 +32,12 @@ impl Service {
             listeners.push(listener?);
         }
 
-        Ok(Self { listeners })
+        let token_decimals = TokenDecimals(&listeners).to_string();
+
+        Ok(Self {
+            listeners,
+            token_decimals,
+        })
     }
 
     pub async fn start_listening(&self, interval: Duration) -> Result<()> {
@@ -49,7 +56,10 @@ impl Service {
     }
 
     pub fn metrics(&'_ self) -> impl std::fmt::Display + '_ {
-        Metrics(&self.listeners)
+        Metrics {
+            listeners: &self.listeners,
+            token_decimals: &self.token_decimals,
+        }
     }
 }
 
@@ -275,15 +285,16 @@ struct TokenInfo {
     decimals: u8,
 }
 
-struct Metrics<'a>(&'a [Arc<Listener>]);
+struct Metrics<'a> {
+    listeners: &'a [Arc<Listener>],
+    token_decimals: &'a str,
+}
 
 impl std::fmt::Display for Metrics<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const LABEL_CHAIN_ID: &str = "chain_id";
-        const LABEL_SYMBOL: &str = "symbol";
-        const LABEL_DECIMALS: &str = "decimals";
+        f.write_str(self.token_decimals)?;
 
-        for listener in self.0 {
+        for listener in self.listeners {
             for vault in &listener.vaults {
                 let state = vault.state.read();
                 if state.updated_at == 0 {
@@ -292,25 +303,55 @@ impl std::fmt::Display for Metrics<'_> {
 
                 f.begin_metric("balance")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
-                    .label(LABEL_SYMBOL, &vault.token_info.symbol)
-                    .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
+                    .label(LABEL_TOKEN, FullAddress(&vault.token))
                     .value(PrintedNum(&state.balance))?;
 
                 f.begin_metric("total_assets")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
-                    .label(LABEL_SYMBOL, &vault.token_info.symbol)
-                    .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
+                    .label(LABEL_TOKEN, FullAddress(&vault.token))
                     .value(PrintedNum(&state.total_assets))?;
 
                 f.begin_metric("updated_at")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
-                    .label(LABEL_SYMBOL, &vault.token_info.symbol)
-                    .label(LABEL_DECIMALS, &vault.token_info.decimals)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
                     .value(state.updated_at)?;
             }
         }
 
         Ok(())
+    }
+}
+
+struct TokenDecimals<'a>(&'a [Arc<Listener>]);
+
+impl std::fmt::Display for TokenDecimals<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut tokens = HashMap::<(u32, ethabi::Address), &TokenInfo>::new();
+        for listener in self.0 {
+            for vault in &listener.vaults {
+                tokens.insert((listener.chain_id, vault.token), &vault.token_info);
+            }
+        }
+
+        for ((chain_id, token), info) in tokens {
+            f.begin_metric("token_decimals")
+                .label(LABEL_CHAIN_ID, chain_id)
+                .label(LABEL_TOKEN, FullAddress(&token))
+                .label(LABEL_SYMBOL, &info.symbol)
+                .value(info.decimals)?;
+        }
+
+        Ok(())
+    }
+}
+
+struct FullAddress<'a>(&'a ethabi::Address);
+
+impl std::fmt::Display for FullAddress<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_fmt(format_args!("0x{:x}", self.0))
     }
 }
 
@@ -326,3 +367,8 @@ enum ListenerError {
     #[error("Invalid getter output")]
     InvalidOutput,
 }
+
+const LABEL_CHAIN_ID: &str = "chain_id";
+const LABEL_VAULT: &str = "vault";
+const LABEL_TOKEN: &str = "token";
+const LABEL_SYMBOL: &str = "symbol";
