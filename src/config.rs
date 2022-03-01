@@ -22,6 +22,10 @@ pub struct NetworkVaults {
     /// RPC endpoint
     pub endpoint: String,
 
+    /// Optional bridge address. Must be only used once
+    #[serde(default)]
+    pub bridge_proxy: Option<Address>,
+
     /// Vault addresses
     pub vaults: Vec<VaultsEntry>,
 }

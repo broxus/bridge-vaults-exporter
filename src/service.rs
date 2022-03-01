@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use pomfrit::formatter::*;
 use web3::api::Namespace;
-use web3::ethabi;
+use web3::ethabi::{Address, Function, Token, Uint};
 
 use crate::config::*;
 use crate::contracts;
@@ -45,6 +45,10 @@ impl Service {
     pub async fn start_listening(&self, interval: Duration) -> Result<()> {
         let mut futures = FuturesUnordered::new();
         for listener in &self.listeners {
+            if let Some(bridge_listener) = &listener.bridge_listener {
+                bridge_listener.start_listening(interval).await?;
+            }
+
             for vault in &listener.vaults {
                 futures.push(vault.start_listening(interval));
             }
@@ -67,6 +71,7 @@ impl Service {
 
 struct Listener {
     chain_id: u32,
+    bridge_listener: Option<Arc<BridgeListener>>,
     vaults: Vec<Arc<VaultListener>>,
 }
 
@@ -75,6 +80,13 @@ impl Listener {
         let api = Api::new(config.endpoint.as_str())
             .await
             .context("Failed to initialize api")?;
+
+        let bridge_listener = match config.bridge_proxy {
+            Some(bridge_proxy) => {
+                Some(BridgeListener::new(ctx.clone(), api.clone(), bridge_proxy).await?)
+            }
+            None => None,
+        };
 
         let mut vaults = Vec::with_capacity(config.vaults.len());
 
@@ -90,16 +102,88 @@ impl Listener {
 
         Ok(Arc::new(Self {
             chain_id: api.chain_id,
+            bridge_listener,
             vaults,
         }))
+    }
+}
+
+struct BridgeListener {
+    listening: AtomicBool,
+    api: Api,
+    bridge_proxy: Address,
+    current_round: AtomicU32,
+    relay_count: AtomicU32,
+}
+
+impl BridgeListener {
+    async fn new(
+        ctx: Arc<InitializationContext>,
+        api: Api,
+        bridge_proxy: Address,
+    ) -> Result<Arc<Self>> {
+        ctx.set_has_bridge_proxy()?;
+
+        let last_round = api.get_last_round(bridge_proxy).await?;
+        let relay_count = api.get_relay_count(bridge_proxy, last_round).await?;
+
+        Ok(Arc::new(Self {
+            listening: AtomicBool::new(false),
+            api,
+            bridge_proxy,
+            current_round: AtomicU32::new(last_round),
+            relay_count: AtomicU32::new(relay_count),
+        }))
+    }
+
+    async fn start_listening(self: &Arc<Self>, interval: Duration) -> Result<()> {
+        if self.listening.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+
+        self.update().await?;
+
+        log::info!("Started listening bridge state {:x}", self.bridge_proxy);
+
+        let this = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+
+                if let Err(e) = this.update().await {
+                    log::error!(
+                        "Failed to update bridge state {:x}: {:?}",
+                        this.bridge_proxy,
+                        e
+                    );
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn update(&self) -> Result<()> {
+        let current_round = self.api.get_last_round(self.bridge_proxy).await?;
+        if self.current_round.swap(current_round, Ordering::AcqRel) == current_round {
+            return Ok(());
+        }
+
+        let relay_count = self
+            .api
+            .get_relay_count(self.bridge_proxy, current_round)
+            .await?;
+        self.relay_count.store(relay_count, Ordering::Release);
+
+        Ok(())
     }
 }
 
 struct VaultListener {
     listening: AtomicBool,
     api: Api,
-    vault: ethabi::Address,
-    token: ethabi::Address,
+    vault: Address,
+    token: Address,
     token_info: TokenInfo,
     state: parking_lot::RwLock<VaultState>,
 }
@@ -187,14 +271,24 @@ struct VaultState {
 
 #[derive(Default)]
 struct InitializationContext {
+    /// Whether the bridge proxy was already specified
+    has_bridge_proxy: AtomicBool,
     /// Set of unique vaults (chain id + vault address)
-    unique_vaults: parking_lot::Mutex<HashSet<(u32, ethabi::Address)>>,
+    unique_vaults: parking_lot::Mutex<HashSet<(u32, Address)>>,
     /// Map of token groups (chain id + token address => group)
-    token_groups: parking_lot::Mutex<HashMap<(u32, ethabi::Address), String>>,
+    token_groups: parking_lot::Mutex<HashMap<(u32, Address), String>>,
 }
 
 impl InitializationContext {
-    fn add_vault(&self, chain_id: u32, vault: ethabi::Address) -> Result<()> {
+    fn set_has_bridge_proxy(&self) -> Result<()> {
+        if !self.has_bridge_proxy.swap(true, Ordering::AcqRel) {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Duplicate bridge proxy"))
+        }
+    }
+
+    fn add_vault(&self, chain_id: u32, vault: Address) -> Result<()> {
         if self.unique_vaults.lock().insert((chain_id, vault)) {
             Ok(())
         } else {
@@ -202,7 +296,7 @@ impl InitializationContext {
         }
     }
 
-    fn add_token_group(&self, chain_id: u32, token: ethabi::Address, group: String) -> Result<()> {
+    fn add_token_group(&self, chain_id: u32, token: Address, group: String) -> Result<()> {
         use std::collections::hash_map::Entry;
 
         let mut token_group = self.token_groups.lock();
@@ -247,24 +341,50 @@ impl Api {
         Ok(Api { chain_id, api })
     }
 
-    async fn get_vault_token(&self, vault: ethabi::Address) -> Result<ethabi::Address> {
+    async fn get_last_round(&self, bridge_proxy: Address) -> Result<u32> {
+        match self
+            .call(bridge_proxy, contracts::bridge::last_round(), &[])
+            .await?
+            .next()
+        {
+            Some(Token::Uint(uint)) => Ok(uint.as_u32()),
+            _ => Err(ListenerError::InvalidOutput.into()),
+        }
+    }
+
+    async fn get_relay_count(&self, bridge_proxy: Address, round: u32) -> Result<u32> {
+        match self
+            .call(
+                bridge_proxy,
+                contracts::bridge::rounds(),
+                &[Token::Uint(round.into())],
+            )
+            .await?
+            .nth(2)
+        {
+            Some(Token::Uint(uint)) => Ok(uint.as_u32()),
+            _ => Err(ListenerError::InvalidOutput.into()),
+        }
+    }
+
+    async fn get_vault_token(&self, vault: Address) -> Result<Address> {
         match self
             .call(vault, contracts::vault::token(), &[])
             .await?
             .next()
         {
-            Some(ethabi::Token::Address(address)) => Ok(address),
+            Some(Token::Address(address)) => Ok(address),
             _ => Err(ListenerError::InvalidOutput.into()),
         }
     }
 
-    async fn get_token_info(&self, token: ethabi::Address) -> Result<TokenInfo> {
+    async fn get_token_info(&self, token: Address) -> Result<TokenInfo> {
         let symbol = match self
             .call(token, contracts::erc_20::symbol(), &[])
             .await?
             .next()
         {
-            Some(ethabi::Token::String(symbol)) => symbol,
+            Some(Token::String(symbol)) => symbol,
             _ => return Err(ListenerError::InvalidOutput.into()),
         };
 
@@ -273,49 +393,45 @@ impl Api {
             .await?
             .next()
         {
-            Some(ethabi::Token::Uint(uint)) => uint.as_u32() as u8,
+            Some(Token::Uint(uint)) => uint.as_u32() as u8,
             _ => return Err(ListenerError::InvalidOutput.into()),
         };
 
         Ok(TokenInfo { symbol, decimals })
     }
 
-    async fn get_vault_balance(
-        &self,
-        token: ethabi::Address,
-        vault: ethabi::Address,
-    ) -> Result<ethabi::Uint> {
+    async fn get_vault_balance(&self, token: Address, vault: Address) -> Result<Uint> {
         match self
             .call(
                 token,
                 contracts::erc_20::balance_of(),
-                &[ethabi::Token::Address(vault)],
+                &[Token::Address(vault)],
             )
             .await?
             .next()
         {
-            Some(ethabi::Token::Uint(uint)) => Ok(uint),
+            Some(Token::Uint(uint)) => Ok(uint),
             _ => Err(ListenerError::InvalidOutput.into()),
         }
     }
 
-    async fn get_vault_total_assets(&self, vault: ethabi::Address) -> Result<ethabi::Uint> {
+    async fn get_vault_total_assets(&self, vault: Address) -> Result<Uint> {
         match self
             .call(vault, contracts::vault::total_assets(), &[])
             .await?
             .next()
         {
-            Some(ethabi::Token::Uint(uint)) => Ok(uint),
+            Some(Token::Uint(uint)) => Ok(uint),
             _ => Err(ListenerError::InvalidOutput.into()),
         }
     }
 
     async fn call(
         &self,
-        address: ethabi::Address,
-        method: &ethabi::Function,
-        tokens: &[ethabi::Token],
-    ) -> Result<impl Iterator<Item = ethabi::Token>> {
+        address: Address,
+        method: &Function,
+        tokens: &[Token],
+    ) -> Result<impl Iterator<Item = Token>> {
         let data = method
             .encode_input(tokens)
             .with_context(|| format!("Failed to encode method input: {}", method.name))?;
@@ -355,6 +471,24 @@ impl std::fmt::Display for Metrics<'_> {
         f.write_str(self.token_decimals)?;
 
         for listener in self.listeners {
+            if let Some(bridge_listener) = &listener.bridge_listener {
+                let relay_round = bridge_listener.current_round.load(Ordering::Acquire);
+                let relay_count = bridge_listener.relay_count.load(Ordering::Acquire);
+
+                f.begin_metric("relay_round")
+                    .label(
+                        LABEL_BRIDGE_PROXY,
+                        FullAddress(&bridge_listener.bridge_proxy),
+                    )
+                    .value(relay_round)?;
+                f.begin_metric("relay_count")
+                    .label(
+                        LABEL_BRIDGE_PROXY,
+                        FullAddress(&bridge_listener.bridge_proxy),
+                    )
+                    .value(relay_count)?;
+            }
+
             for vault in &listener.vaults {
                 let state = vault.state.read();
                 if state.updated_at == 0 {
@@ -386,7 +520,7 @@ impl std::fmt::Display for Metrics<'_> {
 
 struct TokenDecimals<'a> {
     listeners: &'a [Arc<Listener>],
-    groups: &'a HashMap<(u32, ethabi::Address), String>,
+    groups: &'a HashMap<(u32, Address), String>,
 }
 
 impl std::fmt::Display for TokenDecimals<'_> {
@@ -396,7 +530,7 @@ impl std::fmt::Display for TokenDecimals<'_> {
             group: Option<&'a String>,
         }
 
-        let mut tokens = HashMap::<(u32, ethabi::Address), TokensEntry>::new();
+        let mut tokens = HashMap::<(u32, Address), TokensEntry>::new();
         for listener in self.listeners {
             for vault in &listener.vaults {
                 tokens.insert(
@@ -422,7 +556,7 @@ impl std::fmt::Display for TokenDecimals<'_> {
     }
 }
 
-struct FullAddress<'a>(&'a ethabi::Address);
+struct FullAddress<'a>(&'a Address);
 
 impl std::fmt::Display for FullAddress<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -448,3 +582,4 @@ const LABEL_VAULT: &str = "vault";
 const LABEL_TOKEN: &str = "token";
 const LABEL_TOKEN_GROUP: &str = "token_group";
 const LABEL_SYMBOL: &str = "symbol";
+const LABEL_BRIDGE_PROXY: &str = "bridge_proxy";

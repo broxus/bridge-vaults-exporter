@@ -30,5 +30,11 @@ contract_methods!(vault, VAULT_ABI, {
     "totalAssets" => total_assets,
 });
 
+contract_methods!(bridge, BRIDGE_ABI, {
+    "lastRound" => last_round,
+    "rounds" => rounds,
+});
+
 static ERC_20_ABI: &str = include_str!("ERC20.json");
 static VAULT_ABI: &str = include_str!("IVault.json");
+static BRIDGE_ABI: &str = include_str!("Bridge.json");
