@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use serde::Deserialize;
 use web3::types::Address;
 
@@ -25,7 +23,18 @@ pub struct NetworkVaults {
     pub endpoint: String,
 
     /// Vault addresses
-    pub vaults: HashSet<Address>,
+    pub vaults: Vec<VaultsEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VaultsEntry {
+    /// Vault address
+    pub address: Address,
+
+    /// Token group
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 fn default_logger_settings() -> serde_yaml::Value {
