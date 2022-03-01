@@ -16,6 +16,8 @@ token_decimals{chain_id="1",token="0x6b175474e89094c44da98b954eedeac495271d0f",t
 token_decimals{chain_id="250",token="0x8d11ec38a3eb5e956b052f67da8bdc9bef8abf3e",token_group="DAI",symbol="DAI"} 18
 token_decimals{chain_id="137",token="0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",token_group="DAI",symbol="DAI"} 18
 token_decimals{chain_id="56",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3",token_group="DAI",symbol="DAI"} 18
+relay_round{bridge_proxy="0xf4404070f63a7e19be0b1dd89a5fb88e12c0173a"} 2
+relay_count{bridge_proxy="0xf4404070f63a7e19be0b1dd89a5fb88e12c0173a"} 22
 balance{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3"} 11454597652850199020763
 total_assets{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307",token="0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3"} 11454597652850199020763
 updated_at{chain_id="56",vault="0xad4c25634e3818d674ddc07b98135ed6db7ef307"} 1646086133
@@ -32,6 +34,8 @@ updated_at{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968"} 1646
 
 > Exported metrics:
 > - `token_decimals` - token decimals (unique for each token in each each network)
+> - `relay_round` - current relay round
+> - `relay_count` - relay count in current round
 > - `balance` - current token balance which is available for withdrawal.
 > - `total_assets` - total token balance, including funds which are locked in some strategies.
 > - `updated_at` - timestamp of the last update
@@ -46,6 +50,7 @@ updated_at{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968"} 1646
 networks:
   # Ethereum
   - endpoint: https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161
+    bridge_proxy: 0xF4404070f63a7E19Be0b1dd89A5fb88E12c0173A
     vaults:
       - group: DAI
         address: 0x032d06b4cc8a914b85615acd0131c3e0a7330968
