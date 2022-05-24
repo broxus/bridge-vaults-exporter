@@ -539,7 +539,6 @@ impl std::fmt::Display for Metrics<'_> {
                 if state.updated_at == 0 {
                     continue;
                 }
-                let withdrawal_period = withdrawal_period(state.updated_at);
 
                 f.begin_metric("balance")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
@@ -563,14 +562,12 @@ impl std::fmt::Display for Metrics<'_> {
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_VAULT, FullAddress(&vault.vault))
                     .label(LABEL_TOKEN, FullAddress(&vault.token))
-                    .label(LABEL_WITHDRAWAL_PERIOD, withdrawal_period)
                     .value(PrintedNum(&state.withdraw_total))?;
 
                 f.begin_metric("withdrawal_period_considered")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
                     .label(LABEL_VAULT, FullAddress(&vault.vault))
                     .label(LABEL_TOKEN, FullAddress(&vault.token))
-                    .label(LABEL_WITHDRAWAL_PERIOD, withdrawal_period)
                     .value(PrintedNum(&state.withdraw_considered))?;
 
                 f.begin_metric("updated_at")
@@ -651,6 +648,5 @@ const LABEL_CHAIN_ID: &str = "chain_id";
 const LABEL_VAULT: &str = "vault";
 const LABEL_TOKEN: &str = "token";
 const LABEL_TOKEN_GROUP: &str = "token_group";
-const LABEL_WITHDRAWAL_PERIOD: &str = "withdrawal_period";
 const LABEL_SYMBOL: &str = "symbol";
 const LABEL_BRIDGE_PROXY: &str = "bridge_proxy";
