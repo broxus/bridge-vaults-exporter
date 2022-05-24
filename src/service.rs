@@ -8,6 +8,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use pomfrit::formatter::*;
 use web3::api::Namespace;
+use web3::contract::tokens::Tokenizable;
 use web3::ethabi::{Address, Function, Token, Uint};
 
 use crate::config::*;
@@ -152,9 +153,8 @@ impl BridgeListener {
 
                 if let Err(e) = this.update().await {
                     log::error!(
-                        "Failed to update bridge state {:x}: {:?}",
+                        "Failed to update bridge state {:x}: {e:?}",
                         this.bridge_proxy,
-                        e
                     );
                 }
             }
@@ -238,7 +238,7 @@ impl VaultListener {
                 tokio::time::sleep(interval).await;
 
                 if let Err(e) = this.update().await {
-                    log::error!("Failed to update vault balance {:x}: {}", this.vault, e);
+                    log::error!("Failed to update vault balance {:x}: {e:?}", this.vault);
                 }
             }
         });
@@ -247,15 +247,23 @@ impl VaultListener {
     }
 
     async fn update(&self) -> Result<()> {
+        let updated_at = now();
+
         let balance = self.api.get_vault_balance(self.token, self.vault).await?;
         let total_assets = self.api.get_vault_total_assets(self.vault).await?;
-
-        let updated_at = now();
+        let withdraw_limit = self.api.get_withdraw_limit_per_period(self.vault).await?;
+        let (withdraw_total, withdraw_considered) = self
+            .api
+            .get_withdrawal_period_stats(self.vault, withdrawal_period(updated_at))
+            .await?;
 
         *self.state.write() = VaultState {
             updated_at,
             balance: balance.to_string(),
             total_assets: total_assets.to_string(),
+            withdraw_limit: withdraw_limit.to_string(),
+            withdraw_total: withdraw_total.to_string(),
+            withdraw_considered: withdraw_considered.to_string(),
         };
 
         Ok(())
@@ -267,6 +275,9 @@ struct VaultState {
     updated_at: u32,
     balance: String,
     total_assets: String,
+    withdraw_limit: String,
+    withdraw_total: String,
+    withdraw_considered: String,
 }
 
 #[derive(Default)]
@@ -426,6 +437,40 @@ impl Api {
         }
     }
 
+    async fn get_withdraw_limit_per_period(&self, vault: Address) -> Result<Uint> {
+        match self
+            .call(vault, contracts::vault::withdraw_limit_per_period(), &[])
+            .await?
+            .next()
+        {
+            Some(Token::Uint(uint)) => Ok(uint),
+            _ => Err(ListenerError::InvalidOutput.into()),
+        }
+    }
+
+    async fn get_withdrawal_period_stats(&self, vault: Address, id: u32) -> Result<(Uint, Uint)> {
+        match self
+            .call(
+                vault,
+                contracts::vault::withdrawal_periods(),
+                &[Uint::from(id).into_token()],
+            )
+            .await?
+            .next()
+        {
+            Some(Token::Tuple(tokens)) => {
+                let mut tokens = tokens.into_iter();
+                match (tokens.next(), tokens.next()) {
+                    (Some(Token::Uint(total)), Some(Token::Uint(considered))) => {
+                        Ok((total, considered))
+                    }
+                    _ => Err(ListenerError::InvalidOutput.into()),
+                }
+            }
+            _ => Err(ListenerError::InvalidOutput.into()),
+        }
+    }
+
     async fn call(
         &self,
         address: Address,
@@ -494,6 +539,7 @@ impl std::fmt::Display for Metrics<'_> {
                 if state.updated_at == 0 {
                     continue;
                 }
+                let withdrawal_period = withdrawal_period(state.updated_at);
 
                 f.begin_metric("balance")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
@@ -506,6 +552,26 @@ impl std::fmt::Display for Metrics<'_> {
                     .label(LABEL_VAULT, FullAddress(&vault.vault))
                     .label(LABEL_TOKEN, FullAddress(&vault.token))
                     .value(PrintedNum(&state.total_assets))?;
+
+                f.begin_metric("withdraw_limit_per_period")
+                    .label(LABEL_CHAIN_ID, listener.chain_id)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
+                    .label(LABEL_TOKEN, FullAddress(&vault.token))
+                    .value(PrintedNum(&state.withdraw_limit))?;
+
+                f.begin_metric("withdrawal_period_total")
+                    .label(LABEL_CHAIN_ID, listener.chain_id)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
+                    .label(LABEL_TOKEN, FullAddress(&vault.token))
+                    .label(LABEL_WITHDRAWAL_PERIOD, withdrawal_period)
+                    .value(PrintedNum(&state.withdraw_total))?;
+
+                f.begin_metric("withdrawal_period_considered")
+                    .label(LABEL_CHAIN_ID, listener.chain_id)
+                    .label(LABEL_VAULT, FullAddress(&vault.vault))
+                    .label(LABEL_TOKEN, FullAddress(&vault.token))
+                    .label(LABEL_WITHDRAWAL_PERIOD, withdrawal_period)
+                    .value(PrintedNum(&state.withdraw_considered))?;
 
                 f.begin_metric("updated_at")
                     .label(LABEL_CHAIN_ID, listener.chain_id)
@@ -564,6 +630,10 @@ impl std::fmt::Display for FullAddress<'_> {
     }
 }
 
+const fn withdrawal_period(now: u32) -> u32 {
+    now / 86400
+}
+
 fn now() -> u32 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -581,5 +651,6 @@ const LABEL_CHAIN_ID: &str = "chain_id";
 const LABEL_VAULT: &str = "vault";
 const LABEL_TOKEN: &str = "token";
 const LABEL_TOKEN_GROUP: &str = "token_group";
+const LABEL_WITHDRAWAL_PERIOD: &str = "withdrawal_period";
 const LABEL_SYMBOL: &str = "symbol";
 const LABEL_BRIDGE_PROXY: &str = "bridge_proxy";

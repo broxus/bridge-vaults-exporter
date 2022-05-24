@@ -28,6 +28,8 @@ contract_methods!(erc_20, ERC_20_ABI, {
 contract_methods!(vault, VAULT_ABI, {
     "token" => token,
     "totalAssets" => total_assets,
+    "withdrawLimitPerPeriod" => withdraw_limit_per_period,
+    "withdrawalPeriods" => withdrawal_periods,
 });
 
 contract_methods!(bridge, BRIDGE_ABI, {
