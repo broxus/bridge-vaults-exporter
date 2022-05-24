@@ -50,6 +50,9 @@ updated_at{chain_id="1",vault="0x032d06b4cc8a914b85615acd0131c3e0a7330968"} 1646
 > - `relay_count` - relay count in current round
 > - `balance` - current token balance which is available for withdrawal.
 > - `total_assets` - total token balance, including funds which are locked in some strategies.
+> - `withdraw_limit_per_period` - maximum amount of tokens which can be withdrawn in one withdrawal period (1 day)
+> - `withdrawal_period_total` - total amount of tokens which were withdrawn in current withdrawal period
+> - `withdrawal_period_considered` - total amount of tokens which were approved for withdrawal in current withdrawal period
 > - `updated_at` - timestamp of the last update
 
 ### Example config
