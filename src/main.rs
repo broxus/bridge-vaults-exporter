@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -23,6 +24,10 @@ async fn run(app: App) -> Result<()> {
     let config: Config = read_config(app.config)?;
     init_logger(&config.logger_settings)?;
 
+    if let Some(healthcheck_address) = config.healthcheck_address {
+        tokio::spawn(healthcheck_service(healthcheck_address));
+    }
+
     let service = Service::new(config.networks)
         .await
         .context("Failed to create service")?;
@@ -43,6 +48,15 @@ async fn run(app: App) -> Result<()> {
     });
 
     futures::future::pending().await
+}
+
+async fn healthcheck_service(address: SocketAddr) {
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+    loop {
+        if let Err(e) = listener.accept().await {
+            log::error!("Failed to accept healthcheck connection: {e:?}");
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, FromArgs)]

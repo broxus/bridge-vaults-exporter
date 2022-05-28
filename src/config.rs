@@ -1,9 +1,15 @@
+use std::net::SocketAddr;
+
 use serde::Deserialize;
 use web3::types::Address;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Listen address of healthcheck service. Just accepts connections
+    #[serde(default)]
+    pub healthcheck_address: Option<SocketAddr>,
+
     /// Networks
     pub networks: Vec<NetworkVaults>,
 
