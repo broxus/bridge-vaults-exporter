@@ -122,7 +122,7 @@ networks:
 
   # Avalanche
   - endpoint: https://api.avax.network/ext/bc/C/rpc
-    values:
+    vaults:
       - group: USDT
         address: 0xbdfd06befeb8cd629b31d89a315092d10435be06
       - group: USDC
