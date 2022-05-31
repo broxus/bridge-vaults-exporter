@@ -120,6 +120,20 @@ networks:
       - group: WETH
         address: 0x5b1e3e9f24455debd6f3a0c4b8bc6b46ca57f68c
 
+  # Avalanche
+  - endpoint: https://api.avax.network/ext/bc/C/rpc
+    values:
+      - group: USDT
+        address: 0xbdfd06befeb8cd629b31d89a315092d10435be06
+      - group: USDC
+        address: 0x48a02b26f544b00f896e5548004d6d80191b774a
+      - group: DAI
+        address: 0x299956ae1fbd9485689395b6b01d7f7d1ab7f776
+      - group: WBTC
+        address: 0x0930179958a0f34ffab00dd8feb16b7b250652e0
+      - group: WETH
+        address: 0x4582ae9a5d051a8bb09b416c946cbae9a7817aa6
+
 metrics_settings:
   # Listen address of metrics. Used by the client to gather prometheus metrics.
   # Default: "127.0.0.1:10000"
