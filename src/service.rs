@@ -50,8 +50,16 @@ impl Service {
                 bridge_listener.start_listening(interval).await?;
             }
 
+            let offset_step = if listener.vaults.is_empty() {
+                Default::default()
+            } else {
+                Duration::from_millis(interval.as_millis() as u64 / listener.vaults.len() as u64)
+            };
+
+            let mut offset = Duration::default();
             for vault in &listener.vaults {
-                futures.push(vault.start_listening(interval));
+                futures.push(vault.start_listening(interval, offset));
+                offset += offset_step;
             }
         }
 
@@ -218,7 +226,7 @@ impl VaultListener {
         }))
     }
 
-    async fn start_listening(self: &Arc<Self>, interval: Duration) -> Result<()> {
+    async fn start_listening(self: &Arc<Self>, interval: Duration, offset: Duration) -> Result<()> {
         if self.listening.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
@@ -234,11 +242,17 @@ impl VaultListener {
 
         let this = self.clone();
         tokio::spawn(async move {
+            tokio::time::sleep(offset).await;
+
             loop {
                 tokio::time::sleep(interval).await;
 
                 if let Err(e) = this.update().await {
-                    log::error!("Failed to update vault balance {:x}: {e:?}", this.vault);
+                    log::error!(
+                        "Failed to update vault balance {:x} (chain_id={}): {e:?}",
+                        this.vault,
+                        this.api.chain_id
+                    );
                 }
             }
         });
